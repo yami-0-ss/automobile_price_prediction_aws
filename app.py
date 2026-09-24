@@ -1,3 +1,36 @@
+import os
+import pickle
+import numpy as np
+from flask import Flask, request, jsonify, render_template_string
+
+app = Flask(__name__)
+
+MODEL_PATH = "RandomForest_model (1).pkl"
+
+# Load the trained RandomForest model
+try:
+    with open(MODEL_PATH, "rb") as f:
+        model = pickle.load(f)
+    print("Model loaded successfully.")
+except Exception as e:
+    model = None
+    print(f"Error loading model: {e}")
+
+# Mappings for categorical features expected by the model
+CATEGORICAL_MAPPINGS = {
+    'Fuel_Type': {'Petrol': 0, 'Diesel': 1, 'CNG': 2, 'Electric': 3, 'Hybrid': 4},
+    'Transmission': {'Manual': 0, 'Automatic': 1},
+    'Owners': {'1st': 1, '2nd': 2, '3rd': 3, '4th+': 4},
+    'Accident_History': {'No': 0, 'Yes': 1},
+    'Service_History': {'Full': 0, 'Partial': 1, 'None': 2},
+    'Color': {'White': 0, 'Black': 1, 'Silver': 2, 'Blue': 3, 'Red': 4, 'Other': 5},
+    'Body_Type': {'Sedan': 0, 'SUV': 1, 'Hatchback': 2, 'Coupe': 3, 'Convertible': 4},
+    'Drivetrain': {'FWD': 0, 'RWD': 1, 'AWD': 2, '4WD': 3},
+    'Location': {'Urban': 0, 'Suburban': 1, 'Rural': 2}
+}
+
+# Embedded HTML Template (Using Raw String `r"""` to prevent invalid decimal literal string escape errors)
+HTML_TEMPLATE = r"""
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -9,11 +42,10 @@
     <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 </head>
 <body class="bg-slate-900 text-slate-100 font-sans min-h-screen">
-    <!-- Navbar -->
     <nav class="border-b border-slate-800 bg-slate-900/80 backdrop-blur sticky top-0 z-50">
         <div class="max-w-7xl mx-auto px-6 py-4 flex justify-between items-center">
             <div class="flex items-center space-x-3">
-                <i class="fa-solid me-2 fa-chart-line text-indigo-500 text-2xl"></i>
+                <i class="fa-solid fa-chart-line text-indigo-500 text-2xl"></i>
                 <span class="text-xl font-bold tracking-tight">AutoValuate <span class="text-indigo-400">Pro</span></span>
             </div>
             <span class="text-xs font-semibold px-3 py-1 bg-indigo-500/10 text-indigo-400 rounded-full border border-indigo-500/20">AWS Ready</span>
@@ -21,10 +53,8 @@
     </nav>
 
     <div class="max-w-7xl mx-auto px-6 py-8">
-        <!-- Grid Layout -->
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
             
-            <!-- Left Panel: Input Parameters -->
             <div class="lg:col-span-5 bg-slate-800/50 p-6 rounded-2xl border border-slate-700/50 shadow-xl">
                 <h2 class="text-lg font-semibold text-slate-200 mb-6 flex items-center">
                     <i class="fa-solid fa-sliders text-indigo-400 mr-2"></i> Vehicle Specifications
@@ -123,9 +153,7 @@
                 </form>
             </div>
 
-            <!-- Right Panel: Analytics Dashboard -->
             <div class="lg:col-span-7 space-y-6">
-                <!-- Highlight Cards -->
                 <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
                     <div class="bg-slate-800/50 p-5 rounded-xl border border-slate-700/50">
                         <span class="text-xs text-slate-400 font-medium">Estimated Valuation</span>
@@ -141,7 +169,6 @@
                     </div>
                 </div>
 
-                <!-- Charts Section -->
                 <div class="bg-slate-800/50 p-6 rounded-2xl border border-slate-700/50 shadow-xl space-y-6">
                     <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider">Analytics Breakdown</h3>
                     
@@ -153,7 +180,7 @@
                             </div>
                         </div>
                         <div>
-                            <h4 class="text-xs text-slate-400 mb-2">Key Factor Weighting (Model Profile)</h4>
+                            <h4 class="text-xs text-slate-400 mb-2">Key Factor Weighting (Profile)</h4>
                             <div class="h-48">
                                 <canvas id="featureChart"></canvas>
                             </div>
@@ -238,3 +265,57 @@
     </script>
 </body>
 </html>
+"""
+
+@app.route('/')
+def home():
+    return render_template_string(HTML_TEMPLATE)
+
+@app.route('/predict', methods=['POST'])
+def predict():
+    if model is None:
+        return jsonify({'error': 'Model file not loaded on server.'}), 500
+
+    try:
+        data = request.json
+        
+        # Build 17-feature input vector matching model schema
+        features = [
+            float(data.get('Make', 0)),
+            float(data.get('Model', 0)),
+            float(data.get('Year', 2020)),
+            CATEGORICAL_MAPPINGS['Fuel_Type'].get(data.get('Fuel_Type'), 0),
+            CATEGORICAL_MAPPINGS['Transmission'].get(data.get('Transmission'), 0),
+            float(data.get('Engine_Size', 2.0)),
+            float(data.get('Mileage', 50000)),
+            float(data.get('Horsepower', 150)),
+            float(data.get('Torque', 200)),
+            CATEGORICAL_MAPPINGS['Owners'].get(data.get('Owners'), 1),
+            CATEGORICAL_MAPPINGS['Accident_History'].get(data.get('Accident_History'), 0),
+            CATEGORICAL_MAPPINGS['Service_History'].get(data.get('Service_History'), 0),
+            CATEGORICAL_MAPPINGS['Color'].get(data.get('Color'), 0),
+            CATEGORICAL_MAPPINGS['Body_Type'].get(data.get('Body_Type'), 0),
+            CATEGORICAL_MAPPINGS['Drivetrain'].get(data.get('Drivetrain'), 0),
+            float(data.get('Fuel_Efficiency', 15.0)),
+            CATEGORICAL_MAPPINGS['Location'].get(data.get('Location'), 0)
+        ]
+
+        input_array = np.array([features])
+        prediction = model.predict(input_array)[0]
+
+        tree_predictions = [tree.predict(input_array)[0] for tree in model.estimators_]
+        std_dev = float(np.std(tree_predictions))
+
+        return jsonify({
+            'status': 'success',
+            'prediction': round(float(prediction), 2),
+            'std_dev': round(std_dev, 2),
+            'min_estimate': round(float(np.min(tree_predictions)), 2),
+            'max_estimate': round(float(np.max(tree_predictions)), 2)
+        })
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 400
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
