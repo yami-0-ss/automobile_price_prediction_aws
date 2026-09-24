@@ -1,5 +1,6 @@
-flask
+Flask
+gunicorn
 scikit-learn
 numpy
-joblib
-gunicorn
+pandas
+jinja2
